@@ -933,6 +933,224 @@ def generate_audit_logs(connection):
         f"Generated {len(audit_events)} audit log events."
     )
 
+def generate_day4_degradation_events(connection):
+    """
+    Generate additional payment events specifically for
+    Day 4 payment degradation detection.
+
+    Existing Day 2/3 data is NOT modified.
+    """
+
+    from datetime import datetime, timedelta, timezone
+
+    # Two periods:
+    # Previous period = 2 days ago
+    # Current period  = yesterday
+
+    now = datetime.now(timezone.utc)
+
+    previous_start = now - timedelta(days=2)
+    current_start = now - timedelta(days=1)
+
+    # Events per payment method per period
+    events_per_method = 100
+
+    # Previous-period success rates
+    previous_success_rates = {
+        "upi": 0.95,
+        "card": 0.90,
+        "wallet": 0.92,
+        "bank_transfer": 0.88,
+    }
+
+    # Current-period success rates.
+    # UPI deliberately degrades.
+    current_success_rates = {
+        "upi": 0.75,
+        "card": 0.89,
+        "wallet": 0.91,
+        "bank_transfer": 0.87,
+    }
+
+    with connection.cursor() as cursor:
+
+        cursor.execute(
+            """
+            SELECT id, amount, currency
+            FROM subscriptions
+            WHERE status != 'cancelled'
+            """
+        )
+
+        subscriptions = cursor.fetchall()
+
+    if not subscriptions:
+        raise RuntimeError(
+            "No usable subscriptions found."
+        )
+
+    payments = []
+
+    for payment_method in previous_success_rates:
+
+        # -------------------------
+        # Previous period
+        # -------------------------
+
+        for _ in range(events_per_method):
+
+            subscription_id, amount, currency = fake.random_element(
+                subscriptions
+            )
+
+            success_rate = previous_success_rates[
+                payment_method
+            ]
+
+            is_success = (
+                fake.random_int(1, 100)
+                <= success_rate * 100
+            )
+
+            if is_success:
+                status = "success"
+                failure_reason = None
+                decline_code = None
+            else:
+                status = "failed"
+
+                failure = fake.random_element(
+                    FAILURE_SCENARIOS
+                )
+
+                failure_reason = failure["reason"]
+                decline_code = failure["decline_code"]
+
+            attempted_at = previous_start + timedelta(
+                minutes=fake.random_int(
+                    0,
+                    1439,
+                )
+            )
+
+            payments.append(
+                {
+                    "id": uuid.uuid4(),
+                    "subscription_id": subscription_id,
+                    "amount": amount,
+                    "currency": currency,
+                    "payment_method": payment_method,
+                    "status": status,
+                    "failure_reason": failure_reason,
+                    "decline_code": decline_code,
+                    "attempt_number": fake.random_int(
+                        1,
+                        3,
+                    ),
+                    "attempted_at": attempted_at,
+                }
+            )
+
+        # -------------------------
+        # Current period
+        # -------------------------
+
+        for _ in range(events_per_method):
+
+            subscription_id, amount, currency = fake.random_element(
+                subscriptions
+            )
+
+            success_rate = current_success_rates[
+                payment_method
+            ]
+
+            is_success = (
+                fake.random_int(1, 100)
+                <= success_rate * 100
+            )
+
+            if is_success:
+                status = "success"
+                failure_reason = None
+                decline_code = None
+            else:
+                status = "failed"
+
+                failure = fake.random_element(
+                    FAILURE_SCENARIOS
+                )
+
+                failure_reason = failure["reason"]
+                decline_code = failure["decline_code"]
+
+            attempted_at = current_start + timedelta(
+                minutes=fake.random_int(
+                    0,
+                    1439,
+                )
+            )
+
+            payments.append(
+                {
+                    "id": uuid.uuid4(),
+                    "subscription_id": subscription_id,
+                    "amount": amount,
+                    "currency": currency,
+                    "payment_method": payment_method,
+                    "status": status,
+                    "failure_reason": failure_reason,
+                    "decline_code": decline_code,
+                    "attempt_number": fake.random_int(
+                        1,
+                        3,
+                    ),
+                    "attempted_at": attempted_at,
+                }
+            )
+
+    with connection.cursor() as cursor:
+
+        for payment in payments:
+
+            cursor.execute(
+                """
+                INSERT INTO payment_attempts
+                (
+                    id,
+                    subscription_id,
+                    amount,
+                    currency,
+                    payment_method,
+                    status,
+                    failure_reason,
+                    decline_code,
+                    attempt_number,
+                    attempted_at
+                )
+                VALUES
+                (
+                    %(id)s,
+                    %(subscription_id)s,
+                    %(amount)s,
+                    %(currency)s,
+                    %(payment_method)s,
+                    %(status)s,
+                    %(failure_reason)s,
+                    %(decline_code)s,
+                    %(attempt_number)s,
+                    %(attempted_at)s
+                )
+                """,
+                payment,
+            )
+
+    connection.commit()
+
+    print(
+        f"Generated {len(payments)} Day 4 degradation events."
+    )
+
 
 
 def main():

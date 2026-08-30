@@ -1,5 +1,6 @@
 from app.database import get_connection
 from app.detector import detect_revenue_risk
+from recovery_decision_agent import decide_recovery_action
 
 from root_cause_agent import (
     analyze_root_cause,
@@ -44,10 +45,21 @@ def analyze_one_risk_case():
             evidence
         )
 
+        
+        recovery_action = decide_recovery_action(
+            root_cause=analysis.root_cause,
+            failure_type=analysis.failure_type,
+            recovery_probability=analysis.recovery_probability,
+            confidence=analysis.confidence,
+            failed_attempt_count=risk_case["failed_attempt_count"],
+            latest_attempt_number=risk_case["latest_attempt_number"],
+        )
+
         # Step 5: Combine deterministic + AI results
         result = {
             "risk_case": risk_case,
             "ai_analysis": analysis.model_dump(),
+            "recovery_decision": recovery_action.model_dump(),
         }
 
         return result

@@ -1,6 +1,6 @@
 import os
 import time
-from unittest import result
+
 
 from dotenv import load_dotenv
 from google import genai
@@ -120,6 +120,16 @@ def analyze_root_cause(payment_data: dict) -> RootCauseAnalysis:
 
             error_message = str(error)
 
+            # Daily quota cannot be fixed by waiting 40 seconds.
+            if (
+                "GenerateRequestsPerDay" in error_message
+                or "insufficient_quota" in error_message
+            ):
+                raise RuntimeError(
+                    "GEMINI_QUOTA_EXHAUSTED"
+                ) from error
+
+            # Temporary rate limit.
             if "429" not in error_message:
                 raise
 

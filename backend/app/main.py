@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from app.database import get_connection
 from app.detector import detect_revenue_risk
 from payment_degradation_detector import detect_payment_degradation
-
+from ai_analysis_service import analyze_one_risk_case
 
 app = FastAPI(
     title="RecoverAI",
@@ -96,3 +96,17 @@ def degradation():
             status_code=500,
             detail=str(error),
         )
+
+@app.post("/analyze")
+def analyze():
+    try:
+        result = analyze_one_risk_case()
+
+        return result
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        )
+

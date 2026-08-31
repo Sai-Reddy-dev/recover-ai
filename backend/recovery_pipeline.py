@@ -2,6 +2,8 @@ import time
 
 from app.database import get_connection
 from app.detector import detect_revenue_risk
+from recovery_decision_agent import decide_recovery_action
+from recovery_workflow import execute_recovery_action
 
 from root_cause_agent import (
     analyze_root_cause,
@@ -57,10 +59,16 @@ def process_risk_case(connection, risk_case):
         latest_attempt_number=risk_case["latest_attempt_number"],
     )
 
+    execution_result = execute_recovery_action(
+        action=recovery_action.action,
+        amount=risk_case["revenue_at_risk"],
+    )
+
     return {
         "risk_case": risk_case,
         "ai_analysis": analysis.model_dump(),
         "recovery_decision": recovery_action.model_dump(),
+        "execution_result": execution_result,
     }
 
 
@@ -158,6 +166,23 @@ def run_recovery_pipeline(
 
                 print(
                     f"Action: {action}"
+                )
+
+                execution = result["execution_result"]
+
+                print(
+                    f"Execution: "
+                    f"{execution['execution_status']}"
+                )
+
+                print(
+                    f"Payment: "
+                    f"{execution['payment_status']}"
+                )
+
+                print(
+                    f"Recovered: "
+                    f"₹{execution['amount_recovered']:.2f}"
                 )
 
             except Exception as error:
@@ -278,8 +303,12 @@ def print_pipeline_summary(
 if __name__ == "__main__":
 
     results, errors = run_recovery_pipeline(
-        limit=10
+        limit=1
     )
+
+    if results:
+        import pprint
+        pprint.pp(results[0])
 
     print_pipeline_summary(
         results,

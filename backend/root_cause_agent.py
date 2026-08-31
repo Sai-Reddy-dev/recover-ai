@@ -130,18 +130,29 @@ def analyze_root_cause(payment_data: dict) -> RootCauseAnalysis:
                 ) from error
 
             # Temporary rate limit.
-            if "429" not in error_message:
+            if "429" not in error_message and "503" not in error_message:
                 raise
 
             if attempt == MAX_RETRIES - 1:
                 raise
 
-            print(
-                f"Gemini rate limit reached. "
-                f"Waiting {DEFAULT_RETRY_SECONDS} seconds..."
-            )
+            if "503" in error_message:
+                retry_seconds = 10
 
-            time.sleep(DEFAULT_RETRY_SECONDS)
+                print(
+                    f"Gemini temporarily unavailable (503). "
+                    f"Retrying in {retry_seconds} seconds..."
+                )
+
+            else:
+                retry_seconds = DEFAULT_RETRY_SECONDS
+
+                print(
+                    f"Gemini rate limit reached (429). "
+                    f"Retrying in {retry_seconds} seconds..."
+                )
+
+            time.sleep(retry_seconds)
 
     result = RootCauseAnalysis.model_validate_json(
     response.text

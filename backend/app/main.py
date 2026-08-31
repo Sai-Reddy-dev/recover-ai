@@ -5,6 +5,7 @@ from app.detector import detect_revenue_risk
 from payment_degradation_detector import detect_payment_degradation
 from ai_analysis_service import analyze_one_risk_case
 from recovery_pipeline import run_recovery_pipeline
+from recovery_pipeline import run_recovery_pipeline
 
 app = FastAPI(
     title="RecoverAI",
@@ -111,11 +112,18 @@ def analyze():
             detail=str(error),
         )
 
+
 @app.post("/recover")
-def recover():
+def recover(limit: int = 1):
     try:
+        if limit < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="limit must be at least 1",
+            )
+
         results, errors = run_recovery_pipeline(
-            limit=100
+            limit=limit
         )
 
         total_revenue_at_risk = sum(
@@ -126,9 +134,7 @@ def recover():
         action_counts = {}
 
         for result in results:
-            action = result[
-                "recovery_decision"
-            ]["action"]
+            action = result["recovery_decision"]["action"]
 
             action_counts[action] = (
                 action_counts.get(action, 0) + 1
@@ -137,11 +143,11 @@ def recover():
         if errors:
             status = "PARTIAL"
         else:
-            status = "COMPLETE"
+            status = "SUCCESS"
 
         return {
             "status": status,
-            "cases_requested": 100,
+            "cases_requested": limit,
             "cases_processed": len(results),
             "cases_with_errors": len(errors),
             "revenue_at_risk_processed": round(
@@ -152,6 +158,9 @@ def recover():
             "results": results,
             "errors": errors,
         }
+
+    except HTTPException:
+        raise
 
     except Exception as error:
         raise HTTPException(

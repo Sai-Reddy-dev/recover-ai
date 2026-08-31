@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import get_connection
 from app.detector import detect_revenue_risk
@@ -7,11 +8,20 @@ from ai_analysis_service import analyze_one_risk_case
 from recovery_pipeline import run_recovery_pipeline 
 from uuid import UUID
 from app.audit_repository import get_case_history_for_subscription
+from app.dashboard_repository import get_dashboard_metrics
 
 app = FastAPI(
     title="RecoverAI",
     description="AI Subscription Revenue Recovery Agent",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -192,4 +202,28 @@ def case_history(subscription_id: UUID):
         }
 
     finally:
+        connection.close()
+
+@app.get("/dashboard")
+def dashboard():
+
+    connection = get_connection()
+
+    try:
+
+        metrics = get_dashboard_metrics(
+            connection
+        )
+
+        return metrics
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        )
+
+    finally:
+
         connection.close()

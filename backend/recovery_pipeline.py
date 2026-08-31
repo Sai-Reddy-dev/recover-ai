@@ -4,6 +4,12 @@ from app.database import get_connection
 from app.detector import detect_revenue_risk
 from recovery_decision_agent import decide_recovery_action
 from recovery_workflow import execute_recovery_action
+from audit_logger import log_audit_event
+
+from guardrails import (
+    validate_recovery_action,
+    get_recovery_case_id,
+)
 
 from root_cause_agent import (
     analyze_root_cause,
@@ -11,7 +17,7 @@ from root_cause_agent import (
     build_payment_evidence,
 )
 
-from recovery_decision_agent import decide_recovery_action
+
 
 
 # Day 7 batch configuration
@@ -34,7 +40,48 @@ def process_risk_case(connection, risk_case):
     Root Cause AI
         ↓
     Recovery Policy
+        ↓
+    Guardrails
+        ↓
+    Recovery Workflow
+        ↓
+    Audit Trail
     """
+
+    # --------------------------------------------------
+    # 1. Get the real recovery case ID
+    # --------------------------------------------------
+
+    recovery_case_id = get_recovery_case_id(
+        connection,
+        risk_case["subscription_id"],
+    )
+
+    # --------------------------------------------------
+    # 2. Audit: risk detected
+    # --------------------------------------------------
+
+    log_audit_event(
+        connection=connection,
+        recovery_case_id=recovery_case_id,
+        event_type="risk_detected",
+        actor="system",
+        message=(
+            f"Revenue risk detected: "
+            f"₹{risk_case['revenue_at_risk']:.2f}."
+        ),
+        metadata={
+            "risk_score": risk_case["risk_score"],
+            "severity": risk_case["severity"],
+            "failed_attempt_count": risk_case[
+                "failed_attempt_count"
+            ],
+        },
+    )
+
+    # --------------------------------------------------
+    # 3. Get real payment evidence
+    # --------------------------------------------------
 
     row = get_payment_evidence_for_subscription(
         connection,
@@ -46,28 +93,191 @@ def process_risk_case(connection, risk_case):
         row,
     )
 
-    # Day 5 — Gemini root cause analysis
+    # --------------------------------------------------
+    # 4. Day 5 — Gemini root cause analysis
+    # --------------------------------------------------
+
     analysis = analyze_root_cause(evidence)
 
-    # Day 6 — deterministic recovery policy
+    log_audit_event(
+        connection=connection,
+        recovery_case_id=recovery_case_id,
+        event_type="root_cause_identified",
+        actor="ai_agent",
+        message=(
+            f"Root cause identified: "
+            f"{analysis.root_cause}."
+        ),
+        metadata={
+            "root_cause": analysis.root_cause,
+            "failure_type": analysis.failure_type,
+            "recovery_probability": (
+                analysis.recovery_probability
+            ),
+            "confidence": analysis.confidence,
+        },
+    )
+
+    # --------------------------------------------------
+    # 5. Day 6 — deterministic recovery policy
+    # --------------------------------------------------
+
     recovery_action = decide_recovery_action(
         root_cause=analysis.root_cause,
         failure_type=analysis.failure_type,
-        recovery_probability=analysis.recovery_probability,
+        recovery_probability=(
+            analysis.recovery_probability
+        ),
         confidence=analysis.confidence,
-        failed_attempt_count=risk_case["failed_attempt_count"],
-        latest_attempt_number=risk_case["latest_attempt_number"],
+        failed_attempt_count=(
+            risk_case["failed_attempt_count"]
+        ),
+        latest_attempt_number=(
+            risk_case["latest_attempt_number"]
+        ),
     )
 
-    execution_result = execute_recovery_action(
-        action=recovery_action.action,
-        amount=risk_case["revenue_at_risk"],
+    log_audit_event(
+        connection=connection,
+        recovery_case_id=recovery_case_id,
+        event_type="recovery_decision",
+        actor="ai_agent",
+        message=(
+            f"Recommended action: "
+            f"{recovery_action.action}."
+        ),
+        metadata={
+            "action": recovery_action.action,
+            "reasoning": recovery_action.reasoning,
+            "confidence": recovery_action.confidence,
+        },
     )
+
+    # --------------------------------------------------
+    # 6. Day 9 — Guardrail validation
+    # --------------------------------------------------
+
+    guardrail_result = validate_recovery_action(
+        connection=connection,
+        subscription_id=(
+            risk_case["subscription_id"]
+        ),
+        recovery_case_id=recovery_case_id,
+        action=recovery_action.action,
+        root_cause=analysis.root_cause,
+        retry_count=(
+            risk_case["failed_attempt_count"]
+        ),
+    )
+
+    log_audit_event(
+        connection=connection,
+        recovery_case_id=recovery_case_id,
+        event_type="guardrail_evaluated",
+        actor="policy_engine",
+        message=(
+            f"Guardrail evaluation: "
+            f"{guardrail_result.action}."
+        ),
+        metadata={
+            "approved": guardrail_result.approved,
+            "action": guardrail_result.action,
+            "reason": guardrail_result.reason,
+        },
+    )
+
+    # --------------------------------------------------
+    # 7. Execute only after guardrail validation
+    # --------------------------------------------------
+
+    if guardrail_result.approved:
+
+        execution_result = execute_recovery_action(
+            action=recovery_action.action,
+            amount=risk_case["revenue_at_risk"],
+        )
+
+    else:
+
+        execution_result = execute_recovery_action(
+            action=guardrail_result.action,
+            amount=risk_case["revenue_at_risk"],
+        )
+
+    # --------------------------------------------------
+    # 8. Audit: action executed
+    # --------------------------------------------------
+
+    log_audit_event(
+        connection=connection,
+        recovery_case_id=recovery_case_id,
+        event_type="action_executed",
+        actor="executor",
+        message=(
+            f"Recovery action executed: "
+            f"{execution_result['execution_status']}."
+        ),
+        metadata={
+            "action": execution_result["action"],
+            "execution_status": (
+                execution_result["execution_status"]
+            ),
+            "payment_status": (
+                execution_result["payment_status"]
+            ),
+            "amount_recovered": (
+                execution_result["amount_recovered"]
+            ),
+        },
+    )
+
+    # --------------------------------------------------
+    # 9. Audit: workflow stopped/completed
+    # --------------------------------------------------
+
+    if execution_result["execution_status"] in {
+        "COMPLETED",
+        "ESCALATED",
+        "STOPPED",
+        "WAITING_FOR_CUSTOMER",
+    }:
+
+        log_audit_event(
+            connection=connection,
+            recovery_case_id=recovery_case_id,
+            event_type="workflow_stopped",
+            actor="system",
+            message=(
+                "Recovery workflow completed "
+                "its current execution step."
+            ),
+            metadata={
+                "execution_status": (
+                    execution_result[
+                        "execution_status"
+                    ]
+                ),
+                "payment_status": (
+                    execution_result[
+                        "payment_status"
+                    ]
+                ),
+            },
+        )
+
+    # --------------------------------------------------
+    # 10. Return complete result
+    # --------------------------------------------------
 
     return {
         "risk_case": risk_case,
         "ai_analysis": analysis.model_dump(),
-        "recovery_decision": recovery_action.model_dump(),
+        "recovery_decision": (
+            recovery_action.model_dump()
+        ),
+        "guardrail_result": (
+            guardrail_result.model_dump()
+        ),
         "execution_result": execution_result,
     }
 

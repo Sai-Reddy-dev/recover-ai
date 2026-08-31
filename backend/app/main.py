@@ -4,8 +4,9 @@ from app.database import get_connection
 from app.detector import detect_revenue_risk
 from payment_degradation_detector import detect_payment_degradation
 from ai_analysis_service import analyze_one_risk_case
-from recovery_pipeline import run_recovery_pipeline
-from recovery_pipeline import run_recovery_pipeline
+from recovery_pipeline import run_recovery_pipeline 
+from uuid import UUID
+from app.audit_repository import get_case_history_for_subscription
 
 app = FastAPI(
     title="RecoverAI",
@@ -167,3 +168,28 @@ def recover(limit: int = 1):
             status_code=500,
             detail=str(error),
         )
+
+@app.get("/cases/{subscription_id}/history")
+def case_history(subscription_id: UUID):
+
+    connection = get_connection()
+
+    try:
+        history = get_case_history_for_subscription(
+            connection,
+            subscription_id,
+        )
+
+        if not history:
+            raise HTTPException(
+                status_code=404,
+                detail="No audit history found for this subscription.",
+            )
+
+        return {
+            "subscription_id": str(subscription_id),
+            "history": history,
+        }
+
+    finally:
+        connection.close()

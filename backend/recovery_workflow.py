@@ -1,10 +1,81 @@
 from typing import Any
+from uuid import uuid4
+from datetime import datetime, timezone
 
 
-def retry_payment(amount: float) -> dict[str, Any]:
+def retry_payment(
+    connection,
+    subscription_id,
+    recovery_case_id,
+    amount: float,
+    payment_method: str,
+    attempt_number: int,
+) -> dict[str, Any]:
     """
-    Simulate a payment retry.
+    Simulate a successful payment retry and persist
+    the successful payment attempt.
     """
+
+    payment_id = uuid4()
+    now = datetime.now(timezone.utc)
+
+    with connection.cursor() as cursor:
+
+        # Record the successful payment attempt.
+        cursor.execute(
+            """
+            INSERT INTO payment_attempts (
+                id,
+                subscription_id,
+                amount,
+                currency,
+                payment_method,
+                status,
+                failure_reason,
+                decline_code,
+                attempt_number,
+                attempted_at
+            )
+            VALUES (
+                %s,
+                %s,
+                %s,
+                'INR',
+                %s,
+                'success',
+                NULL,
+                NULL,
+                %s,
+                %s
+            );
+            """,
+            (
+                payment_id,
+                subscription_id,
+                amount,
+                payment_method,
+                attempt_number,
+                now,
+            ),
+        )
+
+        # Mark the recovery case as recovered.
+        cursor.execute(
+            """
+            UPDATE recovery_cases
+            SET
+                status = 'recovered',
+                closed_at = %s
+            WHERE id = %s
+              AND status = 'active';
+            """,
+            (
+                now,
+                recovery_case_id,
+            ),
+        )
+
+    connection.commit()
 
     return {
         "execution_status": "COMPLETED",
@@ -69,6 +140,11 @@ def escalate_to_human() -> dict[str, Any]:
 def execute_recovery_action(
     action: str,
     amount: float,
+    connection,
+    subscription_id,
+    recovery_case_id,
+    payment_method,
+    attempt_number,
 ) -> dict:
     """
     Execute the recovery action approved by the policy layer.
@@ -79,7 +155,14 @@ def execute_recovery_action(
     """
 
     if action == "RETRY_NOW":
-        result = retry_payment(amount)
+        result = retry_payment(
+            connection=connection,
+            subscription_id=subscription_id,
+            recovery_case_id=recovery_case_id,
+            amount=amount,
+            payment_method=payment_method,
+            attempt_number=attempt_number,
+        )
 
     elif action == "RETRY_LATER":
         result = schedule_retry()

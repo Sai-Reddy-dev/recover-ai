@@ -56,6 +56,17 @@ def detect_revenue_risk(connection):
             WHERE
                 s.status = 'active'
                 AND p.status = 'failed'
+
+                -- Do not detect a subscription that already
+                -- has a successful payment after the failure.
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM payment_attempts successful_payment
+                    WHERE successful_payment.subscription_id = s.id
+                      AND successful_payment.status = 'success'
+                      AND successful_payment.attempted_at > p.attempted_at
+                )
+
             GROUP BY
                 s.id,
                 s.plan_name,

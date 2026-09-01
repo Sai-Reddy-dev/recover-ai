@@ -158,7 +158,10 @@ def process_risk_case(connection, risk_case):
     # --------------------------------------------------
     # 6. Day 9 — Guardrail validation
     # --------------------------------------------------
-
+    customer_opted_out = get_customer_opted_out(
+        connection,
+        risk_case["subscription_id"],
+    )
     guardrail_result = validate_recovery_action(
         connection=connection,
         subscription_id=(
@@ -170,6 +173,7 @@ def process_risk_case(connection, risk_case):
         retry_count=(
             risk_case["failed_attempt_count"]
         ),
+        customer_opted_out=customer_opted_out,
     )
 
     log_audit_event(
@@ -197,6 +201,11 @@ def process_risk_case(connection, risk_case):
         execution_result = execute_recovery_action(
             action=recovery_action.action,
             amount=risk_case["revenue_at_risk"],
+            connection=connection,
+            subscription_id=risk_case["subscription_id"],
+            recovery_case_id=recovery_case_id,
+            payment_method=evidence["payment_event"]["payment_method"],
+            attempt_number=risk_case["latest_attempt_number"] + 1,
         )
 
     else:
@@ -204,6 +213,11 @@ def process_risk_case(connection, risk_case):
         execution_result = execute_recovery_action(
             action=guardrail_result.action,
             amount=risk_case["revenue_at_risk"],
+            connection=connection,
+            subscription_id=risk_case["subscription_id"],
+            recovery_case_id=recovery_case_id,
+            payment_method=evidence["payment_event"]["payment_method"],
+            attempt_number=risk_case["latest_attempt_number"] + 1,
         )
 
     # --------------------------------------------------
@@ -287,6 +301,7 @@ def process_risk_case(connection, risk_case):
 def run_recovery_pipeline(
     limit=DEFAULT_CASE_LIMIT,
 ):
+
     """
     Run the complete RecoverAI intelligence pipeline
     against multiple real risk cases.
@@ -466,12 +481,26 @@ def print_pipeline_summary(
         for result in results
     )
 
+    total_recovered = sum(
+        result["execution_result"]["amount_recovered"]
+        for result in results
+    )
+
     print(
         f"Revenue at risk processed: "
         f"₹{total_revenue_at_risk:.2f}"
     )
 
-    action_counts = {}
+    print(
+        f"Revenue recovered: "
+        f"₹{total_recovered:.2f}"
+    )
+
+    # --------------------------------------------------
+    # AI recommendations
+    # --------------------------------------------------
+
+    recommendation_counts = {}
 
     for result in results:
 
@@ -479,19 +508,80 @@ def print_pipeline_summary(
             "recovery_decision"
         ]["action"]
 
-        action_counts[action] = (
-            action_counts.get(action, 0) + 1
+        recommendation_counts[action] = (
+            recommendation_counts.get(action, 0) + 1
         )
 
-    print("\nRecovery actions:")
+    print("\nAI recommendations:")
 
     for action, count in sorted(
-        action_counts.items()
+        recommendation_counts.items()
     ):
 
         print(
             f"{action}: {count}"
         )
+
+    # --------------------------------------------------
+    # Final executed actions
+    # --------------------------------------------------
+
+    execution_counts = {}
+
+    for result in results:
+
+        action = result[
+            "execution_result"
+        ]["action"]
+
+        execution_counts[action] = (
+            execution_counts.get(action, 0) + 1
+        )
+
+    print("\nExecuted actions:")
+
+    for action, count in sorted(
+        execution_counts.items()
+    ):
+
+        print(
+            f"{action}: {count}"
+        )
+
+        metrics = calculate_recovery_metrics(results)
+
+    print("\nBusiness Recovery Metrics:")
+    print(
+        f"Revenue recovered: "
+        f"₹{metrics['revenue_recovered']:.2f}"
+    )
+
+    print(
+        f"Recovery rate: "
+        f"{metrics['recovery_rate']:.2f}%"
+    )
+
+    print(
+        f"Successful recoveries: "
+        f"{metrics['successful_recoveries']}"
+    )
+
+    recovery_by_action = calculate_recovery_by_action(
+        results
+    )
+
+    print("\nRevenue recovered by action:")
+
+    for action, amount in sorted(
+        recovery_by_action.items()
+    ):
+        print(
+            f"{action}: ₹{amount:.2f}"
+        )
+
+    # --------------------------------------------------
+    # Errors
+    # --------------------------------------------------
 
     if errors:
 
@@ -512,15 +602,103 @@ def print_pipeline_summary(
             )
 
 
+
+def calculate_recovery_metrics(results):
+    """
+    Calculate business-level recovery metrics
+    from completed recovery pipeline results.
+    """
+
+    total_at_risk = sum(
+        result["risk_case"]["revenue_at_risk"]
+        for result in results
+    )
+
+    total_recovered = sum(
+        result["execution_result"]["amount_recovered"]
+        for result in results
+    )
+
+    recovery_rate = (
+        (total_recovered / total_at_risk) * 100
+        if total_at_risk > 0
+        else 0
+    )
+
+    successful_recoveries = sum(
+        1
+        for result in results
+        if (
+            result["execution_result"]["payment_status"]
+            == "SUCCESS"
+        )
+    )
+
+    return {
+        "cases_processed": len(results),
+        "revenue_at_risk": total_at_risk,
+        "revenue_recovered": total_recovered,
+        "recovery_rate": recovery_rate,
+        "successful_recoveries": successful_recoveries,
+    }
+
+
+def calculate_recovery_by_action(results):
+    """
+    Calculate revenue recovered by executed action.
+    """
+
+    recovery_by_action = {}
+
+    for result in results:
+
+        action = result[
+            "execution_result"
+        ]["action"]
+
+        recovered = result[
+            "execution_result"
+        ]["amount_recovered"]
+
+        recovery_by_action[action] = (
+            recovery_by_action.get(action, 0)
+            + recovered
+        )
+
+    return recovery_by_action
+
+
+def get_customer_opted_out(connection, subscription_id):
+    query = """
+        SELECT c.opted_out
+        FROM customers c
+        JOIN subscriptions s
+            ON s.customer_id = c.id
+        WHERE s.id = %s;
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            query,
+            (subscription_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if not row:
+        raise RuntimeError(
+            f"Customer not found for subscription "
+            f"{subscription_id}"
+        )
+
+    return bool(row[0])
+
+
 if __name__ == "__main__":
 
     results, errors = run_recovery_pipeline(
-        limit=1
+        limit=100
     )
-
-    if results:
-        import pprint
-        pprint.pp(results[0])
 
     print_pipeline_summary(
         results,

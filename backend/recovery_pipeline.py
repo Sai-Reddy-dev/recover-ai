@@ -515,7 +515,7 @@ def print_pipeline_summary(
 if __name__ == "__main__":
 
     results, errors = run_recovery_pipeline(
-        limit=1git status
+        limit=1
     )
 
     if results:

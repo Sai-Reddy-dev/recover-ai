@@ -66,7 +66,7 @@ if not API_KEY:
 
 client = genai.Client(api_key=API_KEY)
 
-MODEL_NAME = "gemini-3.6-flash"
+MODEL_NAME = "gemini-3.1-flash-lite"
 MAX_RETRIES = 3
 DEFAULT_RETRY_SECONDS = 40
 

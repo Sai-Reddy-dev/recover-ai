@@ -145,6 +145,118 @@ def get_recovery_case_id(connection, subscription_id):
     return row[0]
 
 
+def get_or_create_recovery_case(
+    connection,
+    subscription_id,
+    revenue_at_risk,
+    priority,
+):
+    """
+    Return the existing active recovery case.
+
+    If no active recovery case exists, create a new one
+    using the latest failed payment attempt.
+    """
+
+    # 1. Check for an existing active case
+    query = """
+        SELECT id
+        FROM recovery_cases
+        WHERE subscription_id = %s
+          AND status = 'active'
+        ORDER BY opened_at DESC
+        LIMIT 1;
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            query,
+            (subscription_id,),
+        )
+
+        row = cursor.fetchone()
+
+    if row:
+        return row[0]
+
+    # 2. Find the latest failed payment
+    query = """
+        SELECT id
+        FROM payment_attempts
+        WHERE subscription_id = %s
+          AND status = 'failed'
+        ORDER BY attempted_at DESC
+        LIMIT 1;
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            query,
+            (subscription_id,),
+        )
+
+        payment_row = cursor.fetchone()
+
+    if not payment_row:
+        raise RuntimeError(
+            f"No failed payment found for subscription "
+            f"{subscription_id}"
+        )
+
+    trigger_payment_id = payment_row[0]
+
+    # 3. Create a new recovery case
+    query = """
+        INSERT INTO recovery_cases (
+            id,
+            customer_id,
+            subscription_id,
+            trigger_payment_id,
+            revenue_at_risk,
+            status,
+            priority,
+            retry_count,
+            opened_at
+        )
+        SELECT
+            gen_random_uuid(),
+            s.customer_id,
+            s.id,
+            %s,
+            %s,
+            'active',
+            %s,
+            0,
+            NOW()
+        FROM subscriptions s
+        WHERE s.id = %s
+        RETURNING id;
+    """
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            query,
+            (
+                trigger_payment_id,
+                revenue_at_risk,
+                priority.lower(),
+                subscription_id,
+            ),
+        )
+
+        new_case = cursor.fetchone()
+
+    if not new_case:
+        raise RuntimeError(
+            f"Unable to create recovery case for subscription "
+            f"{subscription_id}"
+        )
+
+    connection.commit()
+
+    return new_case[0]
+
+
 def get_message_count_last_week(
     connection,
     recovery_case_id,

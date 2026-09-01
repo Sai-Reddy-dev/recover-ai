@@ -8,7 +8,7 @@ from audit_logger import log_audit_event
 
 from guardrails import (
     validate_recovery_action,
-    get_recovery_case_id,
+    get_or_create_recovery_case,
 )
 
 from root_cause_agent import (
@@ -52,9 +52,11 @@ def process_risk_case(connection, risk_case):
     # 1. Get the real recovery case ID
     # --------------------------------------------------
 
-    recovery_case_id = get_recovery_case_id(
-        connection,
-        risk_case["subscription_id"],
+    recovery_case_id = get_or_create_recovery_case(
+        connection=connection,
+        subscription_id=risk_case["subscription_id"],
+        revenue_at_risk=risk_case["revenue_at_risk"],
+        priority=risk_case["severity"],
     )
 
     # --------------------------------------------------
@@ -513,7 +515,7 @@ def print_pipeline_summary(
 if __name__ == "__main__":
 
     results, errors = run_recovery_pipeline(
-        limit=1
+        limit=1git status
     )
 
     if results:

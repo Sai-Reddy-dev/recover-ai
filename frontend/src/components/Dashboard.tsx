@@ -11,6 +11,9 @@ import { AuditTrail } from '@/components/AuditTrail';
 import { DashboardSkeleton } from '@/components/DashboardSkeleton';
 import { ErrorState } from '@/components/ErrorState';
 import { EmptyState } from '@/components/EmptyState';
+import { AIDecisionControl } from '@/components/AIDecisionControl';
+import { RecoveryCases } from '@/components/RecoveryCases';
+import { AIRecommendationDistribution } from '@/components/AIRecommendationDistribution';
 
 type Status = 'loading' | 'success' | 'error' | 'empty';
 
@@ -28,6 +31,8 @@ function hasData(data: DashboardData | null): data is DashboardData {
     data.cases.stopped > 0 ||
     data.recovery_by_action.length > 0 ||
     data.recent_audit_events.length > 0 ||
+    data.ai_decision_control.length > 0 ||
+    data.recovery_cases.length > 0 ||
     data.payment_degradation.degraded_methods > 0 ||
     data.payment_degradation.affected_subscriptions > 0
   );
@@ -90,11 +95,22 @@ export function Dashboard() {
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <RecoveryPerformance summary={data.summary} />
               <RecoveryByAction data={data.recovery_by_action} />
+
+              <div className="lg:col-span-2">
+                <AIRecommendationDistribution
+                  data={data.ai_recommendation_distribution}
+                />
+              </div>
             </div>
 
             <OperationalStatus cases={data.cases} degradation={data.payment_degradation} />
 
             <PaymentDegradationSection data={data.payment_degradation} />
+
+            <RecoveryCases data={data.recovery_cases} />
+
+
+            <AIDecisionControl data={data.ai_decision_control} />
 
             <AuditTrail events={data.recent_audit_events} />
           </div>

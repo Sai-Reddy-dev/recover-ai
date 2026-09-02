@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">RecoverAI</title>
+  <desc id="desc">Blue recovery arrow with an upward revenue pulse</desc>
+  <defs>
+    <linearGradient id="brand" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#3730a3"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#brand)"/>
+  <path d="M18 39c4.5 0 5.5-10 10-10 4.5 0 4.5 12 9 12 4.5 0 5.5-15 10-15" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"/>
+  <path d="m43 20 4 6 7-1" fill="none" stroke="#bfdbfe" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/>
+</svg>
